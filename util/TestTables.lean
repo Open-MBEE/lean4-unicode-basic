@@ -227,7 +227,8 @@ public def main (args : List String) : IO UInt32 := do
   if "PropTable" ∈ args && !testPropTable then
     err := 1
     IO.println "Error: PropTable"
-  if "PropTable" ∈ args && (← readPropC) != PropTable.table then
-    err := 1
-    IO.println "Error: PropTable rows differ from prop.c"
+  if "PropTable" ∈ args then
+    if (← readPropC) != PropTable.table then
+      err := 1
+      IO.println "Error: PropTable rows differ from prop.c"
   return err
