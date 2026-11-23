@@ -186,13 +186,23 @@ lookup decodes this, so callers always get exactly one category bit. Bit 31 and 
 are never returned.
 
 **Kernel evaluation.** The kernel cannot evaluate a C function, so `MakeCLib` also writes the rows
-of `prop.c` to `UnicodeBasic/PropTable.lean`, as nested comparisons with the same decoding.
-`CLib.lookupProp` has that definition and `unicode_prop_lookup` as its compiled implementation:
-compiled code runs the C lookup, while `decide` and `rfl` evaluate the general category and the
-properties derived from it without `native_decide`. `TestTables` checks that the two agree on
-every code point; the agreement is tested, not proved. `lookupCase` and `lookupScript` have no
-such definition, and the text tables are parsed at run time, so the kernel evaluates none of
-those.
+of `prop.c` to `UnicodeBasic/PropTable.lean`, one row per line and in the same order, in lists of
+48 rows. `PropTable.lookup` finds the list of a code point by the last code point of each list,
+then the row in that list, and decodes it as `unicode_prop_lookup` does. `CLib.lookupProp` has
+that definition and `unicode_prop_lookup` as its compiled implementation: compiled code runs the
+C lookup, while `decide` and `rfl` evaluate the general category and the properties derived from
+it without `native_decide`.
+
+What ties the two together:
+
+- `PropTable.lookup_eq_scan` proves that the lookup equals a search of all the rows in order, so
+  the definition means no more than the table and the decoding of one row.
+- `TestTables` checks that the rows of `PropTable.lean` are the rows of `prop.c`.
+- `TestTables` checks that the Lean lookup and the C lookup agree on every code point.
+
+The last two are tests, not proofs: C code is outside what Lean can prove about. `lookupCase` and
+`lookupScript` have no such definition, and the text tables are parsed at run time, so the kernel
+evaluates none of those. The README lists which public properties the kernel evaluates.
 
 `basic.h` holds the shared struct, the `UNICODE_GC_*` masks (which must match `GC` in
 `UnicodeBasic/Types.lean`) and the prototypes. `basic.c` is hand-written (script abbreviation

@@ -146,24 +146,7 @@ static const unicode_data_t table[] = {"
     file.putStrLn "};"
 
 /-- Rows of the property table in one definition of the Lean table -/
-def propChunk : Nat := 64
-
-/-- Comparison tree over rows `lo` to `hi` of the property table, as Lean source -/
-partial def propTree (lo hi : Nat) (ind : String) : String :=
-  if hi ≤ lo + 1 then
-    let (_, c₁, d) := propTable[lo]!
-    s!"leaf c {c₁} {d}"
-  else
-    let mid := (lo + hi) / 2
-    s!"if c < {propTable[mid]!.1} then\n{ind}  {propTree lo mid (ind ++ "  ")}\n{ind}else\n{ind}  {propTree mid hi (ind ++ "  ")}"
-
-/-- Comparison tree over chunks `lo` to `hi` of the property table, as Lean source -/
-partial def propChunkTree (lo hi : Nat) (ind : String) : String :=
-  if hi ≤ lo + 1 then
-    s!"chunk{lo} c"
-  else
-    let mid := (lo + hi) / 2
-    s!"if c < {propTable[mid * propChunk]!.1} then\n{ind}  {propChunkTree lo mid (ind ++ "  ")}\n{ind}else\n{ind}  {propChunkTree mid hi (ind ++ "  ")}"
+def propChunk : Nat := 48
 
 def makePropLean : IO Unit :=
   IO.FS.withFile (leanDir / "PropTable.lean") .write fun file => do
@@ -171,19 +154,22 @@ def makePropLean : IO Unit :=
 module
 
 /-!
-  The table of `UnicodeCLib/prop.c` as comparisons that the kernel can evaluate. The compiled
-  lookup is the C function `unicode_prop_lookup`; this is its definition (internal use only).
+  The table of `UnicodeCLib/prop.c` for the kernel, which cannot evaluate a C function
+  (internal use only). The rows are those of `prop.c`, one per line and in the same order.
 -/
 
 namespace Unicode.PropTable
 
-/-- Value of a code point in a table row with the given last code point and data -/
+/-- Table row: first code point, last code point, data -/
+public abbrev Row := Nat × Nat × Nat
+
+/-- Value of a code point at a row whose last code point is not below it, as in `prop.c` -/
 @[expose]
-public def leaf (c cmax data : Nat) : Nat :=
-  if c ≤ cmax then
-    let gc := data &&& 0x3fffffff
-    let pb := (data >>> 31) &&& 1
-    let op := data &&& 0xffffffff00000000
+public def decode (c : Nat) (r : Row) : Nat :=
+  if r.1 ≤ c then
+    let gc := r.2.2 &&& 0x3fffffff
+    let pb := (r.2.2 >>> 31) &&& 1
+    let op := r.2.2 &&& 0xffffffff00000000
     if gc = 0x00000007 then
       if c &&& 1 = pb then op ||| 0x00000001 else op ||| 0x00000002
     else if gc = 0x00006000 then
@@ -192,18 +178,93 @@ public def leaf (c cmax data : Nat) : Nat :=
       if c &&& 1 = pb then op ||| 0x00008000 else op ||| 0x00010000
     else op ||| gc
   else 0x20000000
+
+/-- Value of a code point at the first row whose last code point is not below it -/
+@[expose]
+public def scan : List Row → Nat → Nat
+  | [], _ => 0x20000000
+  | r :: rs, c => if c ≤ r.2.1 then decode c r else scan rs c
+
+/-- Value of a code point in the first chunk whose bound is not below it -/
+@[expose]
+public def scanChunks : List (Nat × List Row) → Nat → Nat
+  | [], _ => 0x20000000
+  | ch :: chs, c => if c ≤ ch.1 then scan ch.2 c else scanChunks chs c
+
+/-- Rows of all chunks, in order -/
+@[expose]
+public def flatten : List (Nat × List Row) → List Row
+  | [] => []
+  | ch :: chs => ch.2 ++ flatten chs
+
+/-- Whether the bound of each chunk is the greatest last code point of its rows -/
+@[expose]
+public def bounded : List (Nat × List Row) → Bool
+  | [] => true
+  | ch :: chs => ch.2.all (·.2.1 ≤ ch.1) && ch.2.any (ch.1 ≤ ·.2.1) && bounded chs
+
+theorem scan_append_of_le {rs : List Row} (rest : List Row) {c b : Nat}
+    (h : rs.any (b ≤ ·.2.1) = true) (hc : c ≤ b) : scan (rs ++ rest) c = scan rs c := by
+  induction rs with
+  | nil => simp at h
+  | cons r rs ih =>
+    simp only [List.cons_append, scan]
+    split
+    · rfl
+    · next hr =>
+      simp only [List.any_cons, Bool.or_eq_true, decide_eq_true_eq] at h
+      exact ih (h.resolve_left (by omega))
+
+theorem scan_append_of_lt {rs : List Row} (rest : List Row) {c b : Nat}
+    (h : rs.all (·.2.1 ≤ b) = true) (hc : b < c) : scan (rs ++ rest) c = scan rest c := by
+  induction rs with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp only [List.cons_append, scan]
+    split
+    · omega
+    · exact ih h.2
+
+/-- Searching by chunks finds the value that searching all rows in order finds -/
+public theorem scanChunks_eq_scan {chs : List (Nat × List Row)} (h : bounded chs = true) (c : Nat) :
+    scanChunks chs c = scan (flatten chs) c := by
+  induction chs with
+  | nil => rfl
+  | cons ch chs ih =>
+    simp only [bounded, Bool.and_eq_true] at h
+    simp only [scanChunks, flatten]
+    split
+    · next hc => exact (scan_append_of_le _ h.1.2 hc).symm
+    · next hc => rw [scan_append_of_lt _ h.1.1 (by omega)]; exact ih h.2
 "
     let n := propTable.size
     let chunks := (n + propChunk - 1) / propChunk
     for i in [0:chunks] do
-      file.putStrLn s!"@[expose]
-public def chunk{i} (c : Nat) : Nat :=
-  {propTree (i * propChunk) (min n ((i + 1) * propChunk)) "  "}
-"
-    file.putStrLn s!"/-- General category and `Other_*` property bits of a code point -/
+      file.putStrLn s!"@[expose]\npublic def rows{i} : List Row := ["
+      for (c₀, c₁, d) in propTable[i * propChunk : min n ((i + 1) * propChunk)] do
+        file.putStrLn s!"({c₀},{c₁},{d}),"
+      file.putStrLn "]\n"
+    file.putStrLn "/-- The rows in chunks, each with the last code point of its last row -/
 @[expose]
-public def lookup (c : Nat) : Nat :=
-  {propChunkTree 0 chunks "  "}
+public def chunks : List (Nat × List Row) := ["
+    for i in [0:chunks] do
+      let (_, c₁, _) := propTable[min n ((i + 1) * propChunk) - 1]!
+      file.putStrLn s!"({c₁}, rows{i}),"
+    file.putStrLn "]
+
+/-- The rows of `prop.c` -/
+@[expose]
+public def table : List Row := flatten chunks
+
+/-- General category and `Other_*` property bits of a code point -/
+@[expose]
+public def lookup (c : Nat) : Nat := scanChunks chunks c
+
+/-- The lookup is a search of the rows of `prop.c` in order: the value of a code point is that of
+the first row whose last code point is not below it -/
+public theorem lookup_eq_scan (c : Nat) : lookup c = scan table c :=
+  scanChunks_eq_scan (by decide +kernel) c
 
 end Unicode.PropTable"
 
