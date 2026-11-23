@@ -181,8 +181,40 @@ def tests : Array (String × (UnicodeData → Bool)) := #[
   ("General_Category", testGeneralCategory),
   ("White_Space", testWhiteSpace)]
 
+/-- The kernel definition of the property lookup agrees with the C lookup on every code point -/
+def testPropTable : Bool :=
+  Nat.all 0x110000 fun c _ => (PropTable.lookup c).toUInt64 == CLib.lookupProp c.toUInt32
+
+/-- The rows of `prop.c`, read from its `{UINT32_C(_),UINT32_C(_),UINT64_C(_)},` lines -/
+def readPropC : IO (List PropTable.Row) := do
+  let lines ← IO.FS.lines ("../UnicodeCLib/prop.c" : System.FilePath)
+  let mut rows := #[]
+  for line in lines do
+    if line.startsWith "{UINT32_C(" then
+      let nums := (line.splitOn "(").filterMap fun s => (s.takeWhile Char.isDigit).toNat?
+      if let [c₀, c₁, d] := nums then rows := rows.push (c₀, c₁, d)
+  return rows.toList
+
+/-! The kernel evaluates general category and property lookups, without `native_decide`. -/
+
+example : getGC 'a' = .Ll := by decide
+example : getGC 'é' = .Ll := rfl
+example : GeneralCategory.isLetter 'é' = true := by decide
+example : GeneralCategory.isLetter 'Ā' = true ∧ getGC 'Ā' = .Lu ∧ getGC 'ā' = .Ll := by decide
+example : GeneralCategory.isLetter '惑' = true := by decide
+example : GeneralCategory.isMark '\u0301' = true := by decide
+example : GeneralCategory.isNumber '٣' = true := by decide
+example : GeneralCategory.isPunctuation '、' = true := by decide
+example : getGC '«' = .Pi ∧ getGC '»' = .Pf := by decide
+example : getGC '\uFFFF' = .Cn ∧ getGC (Char.ofNat 0x10FFFF) = .Cn := by decide
+example : isAlphabetic 'ⓐ' = true ∧ isLowercase 'ⓐ' = true := by decide
+example : isMath '∑' = true := by decide
+example : isCaseIgnorable '\u0301' = true ∧ isWhiteSpace '\u00A0' = true := by decide
+example : isHexDigit '５' = true ∧ isBidiControl '\u200E' = true := by decide
+example : isNoncharacterCodePoint '\uFFFF' = true := by decide
+
 public def main (args : List String) : IO UInt32 := do
-  let args := if args.isEmpty then tests.map Prod.fst else args.toArray
+  let args := if args.isEmpty then (tests.map Prod.fst).push "PropTable" else args.toArray
   let stream : UnicodeDataStream := {}
   let mut err : UInt32 := 0
   for d in stream do
@@ -192,4 +224,11 @@ public def main (args : List String) : IO UInt32 := do
       if t.1 ∈ args && !t.2 d then
         err := 1
         IO.println s!"Error: {t.1} {toHexStringRaw d.code}"
+  if "PropTable" ∈ args && !testPropTable then
+    err := 1
+    IO.println "Error: PropTable"
+  if "PropTable" ∈ args then
+    if (← readPropC) != PropTable.table then
+      err := 1
+      IO.println "Error: PropTable rows differ from prop.c"
   return err

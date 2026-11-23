@@ -71,6 +71,26 @@ Then add `import UnicodeBasic` at the top of any Lean file where you plan to use
 
 The main entry point is the root file `UnicodeBasic`. This file contains a description of the main API as well as all primary library functions. The file `UnicodeBasic.Types` contains all the primary data types used in the library.
 
+### Kernel evaluation
+
+The kernel evaluates some properties and not others. Where it does, `decide` and `rfl` prove facts about specific characters; elsewhere such proofs need `native_decide`. Compiled code evaluates every property.
+
+| Property | Kernel evaluation |
+| --- | --- |
+| `getGC`, `char ∈ category` and all the `GeneralCategory.is*` predicates | yes |
+| `isAlphabetic` (`isAlpha`), `isLowercase`, `isUppercase`, `isCased`, `isCaseIgnorable` | yes |
+| `isMath`, `isWhiteSpace` | yes |
+| `isHexDigit`, `getHexDigit?` | yes |
+| `isBidiControl`, `isNoncharacterCodePoint` | yes |
+| `getLowerChar`, `getUpperChar`, `getTitleChar`, `getCaseFoldingChar` | ASCII characters only |
+| `getLower`, `getUpper`, `getTitle`, `getCaseFolding` | ASCII characters only |
+| `getCanonicalCombiningClass`, `getCanonicalDecomposition`, `getDecompositionMapping?` | ASCII characters only |
+| `isNumeric`, `isDigit`, `isDecimal`, `getDigit?`, `getDecimalRange?` | ASCII characters only |
+| `getScript`, `getScriptName?`, `getScriptSet` | no |
+| `getBidiClass`, `isBidiMirrored` | no |
+| `isDefaultIgnorableCodePoint` | no |
+| `getName` | no |
+
 The remaining files are implementation details. Some of these may be of interest for developers. For example `UnicodeBasic.CharacterDatabase` defines a stream type for parsing files from the [Unicode Character Database](https://www.unicode.org/Public/UCD/latest/ucd/).
 
 ## Documentation

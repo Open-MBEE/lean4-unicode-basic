@@ -13,6 +13,7 @@ tables, which are committed to the repository:
 | --- | --- | --- | --- |
 | `data/*.txt` | `util/MakeTables.lean` | `UnicodeBasic/TableLookup.lean`, via `include_str` | Most properties |
 | `UnicodeCLib/{prop,case,script}.c` | `util/MakeCLib.lean` | `UnicodeBasic/TableLookup.lean`, via `@[extern]` | The hottest lookups: general category, `Other_*` bits, simple case mappings, script |
+| `UnicodeBasic/PropTable.lean` | `util/MakeCLib.lean` | `UnicodeBasic/TableLookup.lean`, as the definition of `CLib.lookupProp` | Kernel evaluation of the general category and `Other_*` bits |
 
 The data flow is:
 
@@ -32,7 +33,8 @@ Generated files are never edited by hand. Change the generator and regenerate.
 UnicodeBasic by path (`path = ".."`), and it has three executables:
 
 - `MakeTables`: writes `../data/<Property>.txt`.
-- `MakeCLib`: writes `../UnicodeCLib/prop.c`, `case.c` and `script.c`.
+- `MakeCLib`: writes `../UnicodeCLib/prop.c`, `case.c` and `script.c`, and
+  `../UnicodeBasic/PropTable.lean`.
 - `TestTables`: checks the public API against UnicodeData (see section 6).
 
 `util` pins its own `lean-toolchain` and commits its own `lake-manifest.json`, so the UCD version
@@ -183,6 +185,26 @@ trick folds alternating `Ps`/`Pe` runs (stored as `PG`) and `Pi`/`Pf` runs (stor
 lookup decodes this, so callers always get exactly one category bit. Bit 31 and the union masks
 are never returned.
 
+**Kernel evaluation.** The kernel cannot evaluate a C function, so `MakeCLib` also writes the rows
+of `prop.c` to `UnicodeBasic/PropTable.lean`, one row per line and in the same order, in lists of
+16 rows under a search tree that splits them in halves. `PropTable.lookup` follows at most 8
+splits to the list of a code point, finds the row in that list, and decodes it as
+`unicode_prop_lookup` does. `CLib.lookupProp` has
+that definition and `unicode_prop_lookup` as its compiled implementation: compiled code runs the
+C lookup, while `decide` and `rfl` evaluate the general category and the properties derived from
+it without `native_decide`.
+
+What ties the two together:
+
+- `PropTable.lookup_eq_scan` proves that the lookup equals a search of all the rows in order, so
+  the definition means no more than the table and the decoding of one row.
+- `TestTables` checks that the rows of `PropTable.lean` are the rows of `prop.c`.
+- `TestTables` checks that the Lean lookup and the C lookup agree on every code point.
+
+The last two are tests, not proofs: C code is outside what Lean can prove about. `lookupCase` and
+`lookupScript` have no such definition, and the text tables are parsed at run time, so the kernel
+evaluates none of those. The README lists which public properties the kernel evaluates.
+
 `basic.h` holds the shared struct, the `UNICODE_GC_*` masks (which must match `GC` in
 `UnicodeBasic/Types.lean`) and the prototypes. `basic.c` is hand-written (script abbreviation
 conversions) and is not generated.
@@ -221,8 +243,10 @@ itself / `none`, case folding and special casing → "no change", `Numeric_Value
 properties → `false`, `Script_Extensions` → the singleton set of `lookupScript c`, `Name` →
 `<reserved-XXXX>`.
 
-**C tables.** `TableLookup.CLib` declares the C functions as `@[extern]` opaque constants
-(`lookupProp`, `lookupCase`, `lookupScript`), plus the `Other_*` bit masks. The derived properties
+**C tables.** `TableLookup.CLib` declares the C functions `lookupCase` and `lookupScript` as
+`@[extern]` opaque constants, and `lookupProp` as an `@[extern]` definition whose body is the
+generated `UnicodeBasic/PropTable.lean` (see [The C tables](#3-the-c-tables)), plus the `Other_*`
+bit masks. The derived properties
 are bit tests on one `lookupProp` call, for example
 
 ```lean

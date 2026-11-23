@@ -5,6 +5,8 @@ open Unicode
 
 def clibDir : System.FilePath := ".."/"UnicodeCLib"
 
+def leanDir : System.FilePath := ".."/"UnicodeBasic"
+
 def Unicode.GC.BP : GC := (0x80000000 : UInt32)
 def Unicode.GC.LC0 : GC := GC.LC
 def Unicode.GC.LC1 : GC := GC.LC ||| GC.BP
@@ -143,6 +145,141 @@ static const unicode_data_t table[] = {"
       file.putStrLn s!"\{UINT32_C({c₀}),UINT32_C({c₁}),UINT64_C({d})},"
     file.putStrLn "};"
 
+/-- Rows of the property table in one definition of the Lean table -/
+def propChunk : Nat := 16
+
+/-- Search tree over the lists of rows `lo` to `hi` of the Lean table, as Lean source -/
+partial def propTree (lo hi : Nat) (ind : String) : String :=
+  if lo + 1 ≥ hi then s!"{ind}(.leaf rows{lo})" else
+    let mid := (lo + hi) / 2
+    let (_, c₁, _) := propTable[min propTable.size (mid * propChunk) - 1]!
+    s!"{ind}(.node {c₁}\n{propTree lo mid (ind ++ " ")}\n{propTree mid hi (ind ++ " ")})"
+
+def makePropLean : IO Unit :=
+  IO.FS.withFile (leanDir / "PropTable.lean") .write fun file => do
+    file.putStrLn "/- THIS IS A GENERATED FILE - DO NOT EDIT -/
+module
+
+/-!
+  The table of `UnicodeCLib/prop.c` for the kernel, which cannot evaluate a C function
+  (internal use only). The rows are those of `prop.c`, one per line and in the same order.
+-/
+
+namespace Unicode.PropTable
+
+/-- Table row: first code point, last code point, data -/
+public abbrev Row := Nat × Nat × Nat
+
+/-- Value of a code point at a row whose last code point is not below it, as in `prop.c` -/
+@[expose]
+public def decode (c : Nat) (r : Row) : Nat :=
+  if r.1 ≤ c then
+    let gc := r.2.2 &&& 0x3fffffff
+    let pb := (r.2.2 >>> 31) &&& 1
+    let op := r.2.2 &&& 0xffffffff00000000
+    if gc = 0x00000007 then
+      if c &&& 1 = pb then op ||| 0x00000001 else op ||| 0x00000002
+    else if gc = 0x00006000 then
+      if c &&& 1 = pb then op ||| 0x00002000 else op ||| 0x00004000
+    else if gc = 0x00018000 then
+      if c &&& 1 = pb then op ||| 0x00008000 else op ||| 0x00010000
+    else op ||| gc
+  else 0x20000000
+
+/-- Value of a code point at the first row whose last code point is not below it -/
+@[expose]
+public def scan : List Row → Nat → Nat
+  | [], _ => 0x20000000
+  | r :: rs, c => if c ≤ r.2.1 then decode c r else scan rs c
+
+/-- Search tree over the rows: lists of rows in order, split at a code point -/
+public inductive Tree where
+  /-- Rows to search in order -/
+  | leaf (rows : List Row)
+  /-- Code points up to `bound` are in `left`, the others in `right` -/
+  | node (bound : Nat) (left right : Tree)
+
+/-- Value of a code point in the list of rows that the splits lead to -/
+@[expose]
+public def Tree.lookup : Tree → Nat → Nat
+  | .leaf rs, c => scan rs c
+  | .node b l r, c => if c ≤ b then l.lookup c else r.lookup c
+
+/-- Rows of a tree, in order -/
+@[expose]
+public def Tree.rows : Tree → List Row
+  | .leaf rs => rs
+  | .node _ l r => l.rows ++ r.rows
+
+/-- Whether each split is at the greatest last code point of the rows on its left -/
+@[expose]
+public def Tree.bounded : Tree → Bool
+  | .leaf _ => true
+  | .node b l r =>
+    l.rows.all (·.2.1 ≤ b) && l.rows.any (b ≤ ·.2.1) && l.bounded && r.bounded
+
+theorem scan_append_of_le {rs : List Row} (rest : List Row) {c b : Nat}
+    (h : rs.any (b ≤ ·.2.1) = true) (hc : c ≤ b) : scan (rs ++ rest) c = scan rs c := by
+  induction rs with
+  | nil => simp at h
+  | cons r rs ih =>
+    simp only [List.cons_append, scan]
+    split
+    · rfl
+    · next hr =>
+      simp only [List.any_cons, Bool.or_eq_true, decide_eq_true_eq] at h
+      exact ih (h.resolve_left (by omega))
+
+theorem scan_append_of_lt {rs : List Row} (rest : List Row) {c b : Nat}
+    (h : rs.all (·.2.1 ≤ b) = true) (hc : b < c) : scan (rs ++ rest) c = scan rest c := by
+  induction rs with
+  | nil => rfl
+  | cons r rs ih =>
+    simp only [List.all_cons, Bool.and_eq_true, decide_eq_true_eq] at h
+    simp only [List.cons_append, scan]
+    split
+    · omega
+    · exact ih h.2
+
+/-- Searching by the splits finds the value that searching all rows in order finds -/
+public theorem Tree.lookup_eq_scan {t : Tree} (h : t.bounded = true) (c : Nat) :
+    t.lookup c = scan t.rows c := by
+  induction t with
+  | leaf rs => rfl
+  | node b l r ihl ihr =>
+    simp only [Tree.bounded, Bool.and_eq_true] at h
+    simp only [Tree.lookup, Tree.rows]
+    split
+    · next hc => rw [scan_append_of_le _ h.1.1.2 hc]; exact ihl h.1.2
+    · next hc => rw [scan_append_of_lt _ h.1.1.1 (by omega)]; exact ihr h.2
+"
+    let n := propTable.size
+    let chunks := (n + propChunk - 1) / propChunk
+    for i in [0:chunks] do
+      file.putStrLn s!"@[expose]\npublic def rows{i} : List Row := ["
+      for (c₀, c₁, d) in propTable[i * propChunk : min n ((i + 1) * propChunk)] do
+        file.putStrLn s!"({c₀},{c₁},{d}),"
+      file.putStrLn "]\n"
+    file.putStrLn "/-- The rows as a search tree, split in halves -/
+@[expose]
+public def tree : Tree :="
+    file.putStrLn (propTree 0 chunks "  ")
+    file.putStrLn "
+/-- The rows of `prop.c` -/
+@[expose]
+public def table : List Row := tree.rows
+
+/-- General category and `Other_*` property bits of a code point -/
+@[expose]
+public def lookup (c : Nat) : Nat := tree.lookup c
+
+/-- The lookup is a search of the rows of `prop.c` in order: the value of a code point is that of
+the first row whose last code point is not below it -/
+public theorem lookup_eq_scan (c : Nat) : lookup c = scan table c :=
+  tree.lookup_eq_scan (by decide +kernel) c
+
+end Unicode.PropTable"
+
 def caseTable : Array (UInt32 × UInt32 × UInt64) := Id.run do
   let mut t := #[]
   for data in UnicodeData.data.get do
@@ -233,5 +370,6 @@ static const unicode_data_t table[] = {"
 public def main : IO UInt32 := do
   makeCaseC
   makePropC
+  makePropLean
   makeScriptC
   return 0

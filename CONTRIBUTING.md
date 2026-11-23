@@ -16,7 +16,7 @@ cd util && lake build --wfail        # table generators and tests
 lake exe TestTables                  # (in util) check the library against UnicodeData
 ```
 
-The lookup tables in `data/` are generated from the Unicode Character Database by `util/MakeTables` (`cd util && lake exe MakeTables`), and the C tables in `UnicodeCLib/` by `util/MakeCLib`. Don't edit generated files by hand. Change the generator and regenerate instead. See [TABLES.md](TABLES.md) for how the tables are generated, laid out and read.
+The lookup tables in `data/` are generated from the Unicode Character Database by `util/MakeTables` (`cd util && lake exe MakeTables`), and the C tables in `UnicodeCLib/` and `UnicodeBasic/PropTable.lean` by `util/MakeCLib`. Don't edit generated files by hand. Change the generator and regenerate instead. See [TABLES.md](TABLES.md) for how the tables are generated, laid out and read.
 
 CI runs the same commands on every pull request, and they must pass with no warnings. The Lean version is set in `lean-toolchain` and is updated automatically, so please don't change it in a pull request.
 
@@ -24,14 +24,14 @@ CI runs the same commands on every pull request, and they must pass with no warn
 
 UnicodeBasic has no dependencies, and that is deliberate: please don't add Batteries, Mathlib or any other `require` to the main package. The `util/` and `docs/` packages are separate and may have dependencies.
 
-UnicodeBasic never imports UnicodeData. Data reaches the library only through generated tables in `data/`, read by `UnicodeBasic.TableLookup`, or through the C library in `UnicodeCLib/`.
+UnicodeBasic never imports UnicodeData. Data reaches the library only through generated tables in `data/`, read by `UnicodeBasic.TableLookup`, or through the C library in `UnicodeCLib/`. One generated Lean file is the exception: `UnicodeBasic/PropTable.lean` holds the rows of `UnicodeCLib/prop.c` for the kernel, which cannot evaluate a C function.
 
 ## Code style
 
 - Public functions take `Char`, not `UInt32`, unless raw code points are the point. Prefer precise types over strings.
 - Docstrings say what a function does, not how it is implemented.
 - Prefer existing library functions over hand-rolled code.
-- `util/TestTables` tests the public API (`getGC`, `isAlphabetic`, …), not the internal `lookup*` functions.
+- `util/TestTables` tests the public API (`getGC`, `isAlphabetic`, …), not the internal `lookup*` functions. The one exception is the `PropTable` test, which compares `PropTable.lookup` with `CLib.lookupProp` on every code point, surrogates included, and the rows of `PropTable.lean` with those of `prop.c`.
 - Generated tables are compressed wherever possible (for example, runs of derived names are folded into ranges) and use lowercase tags. Names the library outputs follow the Unicode Standard's casing exactly.
 
 ## Pull requests
