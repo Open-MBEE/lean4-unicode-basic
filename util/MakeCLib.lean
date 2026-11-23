@@ -146,7 +146,14 @@ static const unicode_data_t table[] = {"
     file.putStrLn "};"
 
 /-- Rows of the property table in one definition of the Lean table -/
-def propChunk : Nat := 48
+def propChunk : Nat := 16
+
+/-- Search tree over the lists of rows `lo` to `hi` of the Lean table, as Lean source -/
+partial def propTree (lo hi : Nat) (ind : String) : String :=
+  if lo + 1 ≥ hi then s!"{ind}(.leaf rows{lo})" else
+    let mid := (lo + hi) / 2
+    let (_, c₁, _) := propTable[min propTable.size (mid * propChunk) - 1]!
+    s!"{ind}(.node {c₁}\n{propTree lo mid (ind ++ " ")}\n{propTree mid hi (ind ++ " ")})"
 
 def makePropLean : IO Unit :=
   IO.FS.withFile (leanDir / "PropTable.lean") .write fun file => do
@@ -185,23 +192,31 @@ public def scan : List Row → Nat → Nat
   | [], _ => 0x20000000
   | r :: rs, c => if c ≤ r.2.1 then decode c r else scan rs c
 
-/-- Value of a code point in the first chunk whose bound is not below it -/
-@[expose]
-public def scanChunks : List (Nat × List Row) → Nat → Nat
-  | [], _ => 0x20000000
-  | ch :: chs, c => if c ≤ ch.1 then scan ch.2 c else scanChunks chs c
+/-- Search tree over the rows: lists of rows in order, split at a code point -/
+public inductive Tree where
+  /-- Rows to search in order -/
+  | leaf (rows : List Row)
+  /-- Code points up to `bound` are in `left`, the others in `right` -/
+  | node (bound : Nat) (left right : Tree)
 
-/-- Rows of all chunks, in order -/
+/-- Value of a code point in the list of rows that the splits lead to -/
 @[expose]
-public def flatten : List (Nat × List Row) → List Row
-  | [] => []
-  | ch :: chs => ch.2 ++ flatten chs
+public def Tree.lookup : Tree → Nat → Nat
+  | .leaf rs, c => scan rs c
+  | .node b l r, c => if c ≤ b then l.lookup c else r.lookup c
 
-/-- Whether the bound of each chunk is the greatest last code point of its rows -/
+/-- Rows of a tree, in order -/
 @[expose]
-public def bounded : List (Nat × List Row) → Bool
-  | [] => true
-  | ch :: chs => ch.2.all (·.2.1 ≤ ch.1) && ch.2.any (ch.1 ≤ ·.2.1) && bounded chs
+public def Tree.rows : Tree → List Row
+  | .leaf rs => rs
+  | .node _ l r => l.rows ++ r.rows
+
+/-- Whether each split is at the greatest last code point of the rows on its left -/
+@[expose]
+public def Tree.bounded : Tree → Bool
+  | .leaf _ => true
+  | .node b l r =>
+    l.rows.all (·.2.1 ≤ b) && l.rows.any (b ≤ ·.2.1) && l.bounded && r.bounded
 
 theorem scan_append_of_le {rs : List Row} (rest : List Row) {c b : Nat}
     (h : rs.any (b ≤ ·.2.1) = true) (hc : c ≤ b) : scan (rs ++ rest) c = scan rs c := by
@@ -226,17 +241,17 @@ theorem scan_append_of_lt {rs : List Row} (rest : List Row) {c b : Nat}
     · omega
     · exact ih h.2
 
-/-- Searching by chunks finds the value that searching all rows in order finds -/
-public theorem scanChunks_eq_scan {chs : List (Nat × List Row)} (h : bounded chs = true) (c : Nat) :
-    scanChunks chs c = scan (flatten chs) c := by
-  induction chs with
-  | nil => rfl
-  | cons ch chs ih =>
-    simp only [bounded, Bool.and_eq_true] at h
-    simp only [scanChunks, flatten]
+/-- Searching by the splits finds the value that searching all rows in order finds -/
+public theorem Tree.lookup_eq_scan {t : Tree} (h : t.bounded = true) (c : Nat) :
+    t.lookup c = scan t.rows c := by
+  induction t with
+  | leaf rs => rfl
+  | node b l r ihl ihr =>
+    simp only [Tree.bounded, Bool.and_eq_true] at h
+    simp only [Tree.lookup, Tree.rows]
     split
-    · next hc => exact (scan_append_of_le _ h.1.2 hc).symm
-    · next hc => rw [scan_append_of_lt _ h.1.1 (by omega)]; exact ih h.2
+    · next hc => rw [scan_append_of_le _ h.1.1.2 hc]; exact ihl h.1.2
+    · next hc => rw [scan_append_of_lt _ h.1.1.1 (by omega)]; exact ihr h.2
 "
     let n := propTable.size
     let chunks := (n + propChunk - 1) / propChunk
@@ -245,26 +260,23 @@ public theorem scanChunks_eq_scan {chs : List (Nat × List Row)} (h : bounded ch
       for (c₀, c₁, d) in propTable[i * propChunk : min n ((i + 1) * propChunk)] do
         file.putStrLn s!"({c₀},{c₁},{d}),"
       file.putStrLn "]\n"
-    file.putStrLn "/-- The rows in chunks, each with the last code point of its last row -/
+    file.putStrLn "/-- The rows as a search tree, split in halves -/
 @[expose]
-public def chunks : List (Nat × List Row) := ["
-    for i in [0:chunks] do
-      let (_, c₁, _) := propTable[min n ((i + 1) * propChunk) - 1]!
-      file.putStrLn s!"({c₁}, rows{i}),"
-    file.putStrLn "]
-
+public def tree : Tree :="
+    file.putStrLn (propTree 0 chunks "  ")
+    file.putStrLn "
 /-- The rows of `prop.c` -/
 @[expose]
-public def table : List Row := flatten chunks
+public def table : List Row := tree.rows
 
 /-- General category and `Other_*` property bits of a code point -/
 @[expose]
-public def lookup (c : Nat) : Nat := scanChunks chunks c
+public def lookup (c : Nat) : Nat := tree.lookup c
 
 /-- The lookup is a search of the rows of `prop.c` in order: the value of a code point is that of
 the first row whose last code point is not below it -/
 public theorem lookup_eq_scan (c : Nat) : lookup c = scan table c :=
-  scanChunks_eq_scan (by decide +kernel) c
+  tree.lookup_eq_scan (by decide +kernel) c
 
 end Unicode.PropTable"
 

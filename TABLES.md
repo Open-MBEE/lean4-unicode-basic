@@ -187,8 +187,9 @@ are never returned.
 
 **Kernel evaluation.** The kernel cannot evaluate a C function, so `MakeCLib` also writes the rows
 of `prop.c` to `UnicodeBasic/PropTable.lean`, one row per line and in the same order, in lists of
-48 rows. `PropTable.lookup` finds the list of a code point by the last code point of each list,
-then the row in that list, and decodes it as `unicode_prop_lookup` does. `CLib.lookupProp` has
+16 rows under a search tree that splits them in halves. `PropTable.lookup` follows at most 8
+splits to the list of a code point, finds the row in that list, and decodes it as
+`unicode_prop_lookup` does. `CLib.lookupProp` has
 that definition and `unicode_prop_lookup` as its compiled implementation: compiled code runs the
 C lookup, while `decide` and `rfl` evaluate the general category and the properties derived from
 it without `native_decide`.

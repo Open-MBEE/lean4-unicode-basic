@@ -33,23 +33,31 @@ public def scan : List Row → Nat → Nat
   | [], _ => 0x20000000
   | r :: rs, c => if c ≤ r.2.1 then decode c r else scan rs c
 
-/-- Value of a code point in the first chunk whose bound is not below it -/
-@[expose]
-public def scanChunks : List (Nat × List Row) → Nat → Nat
-  | [], _ => 0x20000000
-  | ch :: chs, c => if c ≤ ch.1 then scan ch.2 c else scanChunks chs c
+/-- Search tree over the rows: lists of rows in order, split at a code point -/
+public inductive Tree where
+  /-- Rows to search in order -/
+  | leaf (rows : List Row)
+  /-- Code points up to `bound` are in `left`, the others in `right` -/
+  | node (bound : Nat) (left right : Tree)
 
-/-- Rows of all chunks, in order -/
+/-- Value of a code point in the list of rows that the splits lead to -/
 @[expose]
-public def flatten : List (Nat × List Row) → List Row
-  | [] => []
-  | ch :: chs => ch.2 ++ flatten chs
+public def Tree.lookup : Tree → Nat → Nat
+  | .leaf rs, c => scan rs c
+  | .node b l r, c => if c ≤ b then l.lookup c else r.lookup c
 
-/-- Whether the bound of each chunk is the greatest last code point of its rows -/
+/-- Rows of a tree, in order -/
 @[expose]
-public def bounded : List (Nat × List Row) → Bool
-  | [] => true
-  | ch :: chs => ch.2.all (·.2.1 ≤ ch.1) && ch.2.any (ch.1 ≤ ·.2.1) && bounded chs
+public def Tree.rows : Tree → List Row
+  | .leaf rs => rs
+  | .node _ l r => l.rows ++ r.rows
+
+/-- Whether each split is at the greatest last code point of the rows on its left -/
+@[expose]
+public def Tree.bounded : Tree → Bool
+  | .leaf _ => true
+  | .node b l r =>
+    l.rows.all (·.2.1 ≤ b) && l.rows.any (b ≤ ·.2.1) && l.bounded && r.bounded
 
 theorem scan_append_of_le {rs : List Row} (rest : List Row) {c b : Nat}
     (h : rs.any (b ≤ ·.2.1) = true) (hc : c ≤ b) : scan (rs ++ rest) c = scan rs c := by
@@ -74,17 +82,17 @@ theorem scan_append_of_lt {rs : List Row} (rest : List Row) {c b : Nat}
     · omega
     · exact ih h.2
 
-/-- Searching by chunks finds the value that searching all rows in order finds -/
-public theorem scanChunks_eq_scan {chs : List (Nat × List Row)} (h : bounded chs = true) (c : Nat) :
-    scanChunks chs c = scan (flatten chs) c := by
-  induction chs with
-  | nil => rfl
-  | cons ch chs ih =>
-    simp only [bounded, Bool.and_eq_true] at h
-    simp only [scanChunks, flatten]
+/-- Searching by the splits finds the value that searching all rows in order finds -/
+public theorem Tree.lookup_eq_scan {t : Tree} (h : t.bounded = true) (c : Nat) :
+    t.lookup c = scan t.rows c := by
+  induction t with
+  | leaf rs => rfl
+  | node b l r ihl ihr =>
+    simp only [Tree.bounded, Bool.and_eq_true] at h
+    simp only [Tree.lookup, Tree.rows]
     split
-    · next hc => exact (scan_append_of_le _ h.1.2 hc).symm
-    · next hc => rw [scan_append_of_lt _ h.1.1 (by omega)]; exact ih h.2
+    · next hc => rw [scan_append_of_le _ h.1.1.2 hc]; exact ihl h.1.2
+    · next hc => rw [scan_append_of_lt _ h.1.1.1 (by omega)]; exact ihr h.2
 
 @[expose]
 public def rows0 : List Row := [
@@ -104,6 +112,10 @@ public def rows0 : List Row := [
 (60,62,262144),
 (63,64,131072),
 (65,90,1),
+]
+
+@[expose]
+public def rows1 : List Row := [
 (91,91,8192),
 (92,92,131072),
 (93,93,16384),
@@ -120,6 +132,10 @@ public def rows0 : List Row := [
 (161,161,131072),
 (162,165,524288),
 (166,166,2097152),
+]
+
+@[expose]
+public def rows2 : List Row := [
 (167,167,131072),
 (168,168,1048576),
 (169,169,2097152),
@@ -139,7 +155,7 @@ public def rows0 : List Row := [
 ]
 
 @[expose]
-public def rows1 : List Row := [
+public def rows3 : List Row := [
 (185,185,1024),
 (186,186,8589934608),
 (187,187,65536),
@@ -156,6 +172,10 @@ public def rows1 : List Row := [
 (329,376,7),
 (377,382,2147483655),
 (383,384,2),
+]
+
+@[expose]
+public def rows4 : List Row := [
 (385,386,1),
 (387,390,7),
 (391,393,2147483655),
@@ -172,6 +192,10 @@ public def rows1 : List Row := [
 (423,426,2147483655),
 (427,430,7),
 (431,433,2147483655),
+]
+
+@[expose]
+public def rows5 : List Row := [
 (434,435,1),
 (436,439,2147483655),
 (440,441,7),
@@ -191,7 +215,7 @@ public def rows1 : List Row := [
 ]
 
 @[expose]
-public def rows2 : List Row := [
+public def rows6 : List Row := [
 (496,497,2147483655),
 (498,498,4),
 (499,502,7),
@@ -208,6 +232,10 @@ public def rows2 : List Row := [
 (660,661,16),
 (662,687,2),
 (688,696,8589934600),
+]
+
+@[expose]
+public def rows7 : List Row := [
 (697,703,8),
 (704,705,8589934600),
 (706,709,1048576),
@@ -224,6 +252,10 @@ public def rows2 : List Row := [
 (838,866,32),
 (867,879,17179869216),
 (880,883,7),
+]
+
+@[expose]
+public def rows8 : List Row := [
 (884,884,8),
 (885,885,1048576),
 (886,887,7),
@@ -243,7 +275,7 @@ public def rows2 : List Row := [
 ]
 
 @[expose]
-public def rows3 : List Row := [
+public def rows9 : List Row := [
 (940,974,2),
 (975,975,1),
 (976,977,34359738370),
@@ -260,6 +292,10 @@ public def rows3 : List Row := [
 (1018,1019,7),
 (1020,1021,2147483655),
 (1022,1071,1),
+]
+
+@[expose]
+public def rows10 : List Row := [
 (1072,1119,2),
 (1120,1153,7),
 (1154,1154,2097152),
@@ -276,6 +312,10 @@ public def rows3 : List Row := [
 (1417,1417,131072),
 (1418,1418,4096),
 (1419,1420,8589934600),
+]
+
+@[expose]
+public def rows11 : List Row := [
 (1421,1422,2097152),
 (1423,1423,524288),
 (1425,1455,32),
@@ -295,7 +335,7 @@ public def rows3 : List Row := [
 ]
 
 @[expose]
-public def rows4 : List Row := [
+public def rows12 : List Row := [
 (1542,1544,262144),
 (1545,1546,131072),
 (1547,1547,524288),
@@ -312,6 +352,10 @@ public def rows4 : List Row := [
 (1624,1624,32),
 (1625,1631,17179869216),
 (1632,1641,256),
+]
+
+@[expose]
+public def rows13 : List Row := [
 (1642,1645,131072),
 (1646,1647,16),
 (1648,1648,17179869216),
@@ -328,6 +372,10 @@ public def rows4 : List Row := [
 (1769,1769,2097152),
 (1770,1772,32),
 (1773,1773,17179869216),
+]
+
+@[expose]
+public def rows14 : List Row := [
 (1774,1775,16),
 (1776,1785,256),
 (1786,1788,16),
@@ -347,7 +395,7 @@ public def rows4 : List Row := [
 ]
 
 @[expose]
-public def rows5 : List Row := [
+public def rows15 : List Row := [
 (1994,2026,16),
 (2027,2035,32),
 (2036,2037,8),
@@ -364,6 +412,10 @@ public def rows5 : List Row := [
 (2084,2084,8),
 (2085,2087,17179869216),
 (2088,2088,8),
+]
+
+@[expose]
+public def rows16 : List Row := [
 (2089,2092,17179869216),
 (2093,2093,32),
 (2096,2110,131072),
@@ -380,6 +432,10 @@ public def rows5 : List Row := [
 (2208,2248,16),
 (2249,2249,8),
 (2250,2259,32),
+]
+
+@[expose]
+public def rows17 : List Row := [
 (2260,2271,17179869216),
 (2272,2273,32),
 (2274,2274,67108864),
@@ -399,7 +455,7 @@ public def rows5 : List Row := [
 ]
 
 @[expose]
-public def rows6 : List Row := [
+public def rows18 : List Row := [
 (2382,2383,17179869248),
 (2384,2384,16),
 (2385,2388,32),
@@ -416,6 +472,10 @@ public def rows6 : List Row := [
 (2437,2444,16),
 (2447,2448,16),
 (2451,2472,16),
+]
+
+@[expose]
+public def rows19 : List Row := [
 (2474,2480,16),
 (2482,2482,16),
 (2486,2489,16),
@@ -432,6 +492,10 @@ public def rows6 : List Row := [
 (2527,2529,16),
 (2530,2531,17179869216),
 (2534,2543,256),
+]
+
+@[expose]
+public def rows20 : List Row := [
 (2544,2545,16),
 (2546,2547,524288),
 (2548,2553,1024),
@@ -451,7 +515,7 @@ public def rows6 : List Row := [
 ]
 
 @[expose]
-public def rows7 : List Row := [
+public def rows21 : List Row := [
 (2616,2617,16),
 (2620,2620,32),
 (2622,2624,17179869248),
@@ -468,6 +532,10 @@ public def rows7 : List Row := [
 (2677,2677,17179869216),
 (2678,2678,131072),
 (2689,2690,17179869216),
+]
+
+@[expose]
+public def rows22 : List Row := [
 (2691,2691,17179869248),
 (2693,2701,16),
 (2703,2705,16),
@@ -484,6 +552,10 @@ public def rows7 : List Row := [
 (2763,2764,17179869248),
 (2765,2765,32),
 (2768,2768,16),
+]
+
+@[expose]
+public def rows23 : List Row := [
 (2784,2785,16),
 (2786,2787,17179869216),
 (2790,2799,256),
@@ -503,7 +575,7 @@ public def rows7 : List Row := [
 ]
 
 @[expose]
-public def rows8 : List Row := [
+public def rows24 : List Row := [
 (2876,2876,32),
 (2877,2877,16),
 (2878,2878,17179869248),
@@ -520,6 +592,10 @@ public def rows8 : List Row := [
 (2911,2913,16),
 (2914,2915,17179869216),
 (2918,2927,256),
+]
+
+@[expose]
+public def rows25 : List Row := [
 (2928,2928,2097152),
 (2929,2929,16),
 (2930,2935,1024),
@@ -536,6 +612,10 @@ public def rows8 : List Row := [
 (2990,3001,16),
 (3006,3007,17179869248),
 (3008,3008,17179869216),
+]
+
+@[expose]
+public def rows26 : List Row := [
 (3009,3010,17179869248),
 (3014,3016,17179869248),
 (3018,3020,17179869248),
@@ -555,7 +635,7 @@ public def rows8 : List Row := [
 ]
 
 @[expose]
-public def rows9 : List Row := [
+public def rows27 : List Row := [
 (3090,3112,16),
 (3114,3129,16),
 (3132,3132,32),
@@ -572,6 +652,10 @@ public def rows9 : List Row := [
 (3170,3171,17179869216),
 (3174,3183,256),
 (3191,3191,131072),
+]
+
+@[expose]
+public def rows28 : List Row := [
 (3192,3198,1024),
 (3199,3199,2097152),
 (3200,3200,16),
@@ -588,6 +672,10 @@ public def rows9 : List Row := [
 (3262,3262,17179869248),
 (3263,3263,17179869216),
 (3264,3268,17179869248),
+]
+
+@[expose]
+public def rows29 : List Row := [
 (3270,3270,17179869216),
 (3271,3272,17179869248),
 (3274,3275,17179869248),
@@ -607,7 +695,7 @@ public def rows9 : List Row := [
 ]
 
 @[expose]
-public def rows10 : List Row := [
+public def rows30 : List Row := [
 (3346,3386,16),
 (3387,3388,32),
 (3389,3389,16),
@@ -624,6 +712,10 @@ public def rows10 : List Row := [
 (3423,3425,16),
 (3426,3427,17179869216),
 (3430,3439,256),
+]
+
+@[expose]
+public def rows31 : List Row := [
 (3440,3448,1024),
 (3449,3449,2097152),
 (3450,3455,16),
@@ -640,6 +732,10 @@ public def rows10 : List Row := [
 (3542,3542,17179869216),
 (3544,3551,17179869248),
 (3558,3567,256),
+]
+
+@[expose]
+public def rows32 : List Row := [
 (3570,3571,17179869248),
 (3572,3572,131072),
 (3585,3632,16),
@@ -659,7 +755,7 @@ public def rows10 : List Row := [
 ]
 
 @[expose]
-public def rows11 : List Row := [
+public def rows33 : List Row := [
 (3716,3716,16),
 (3718,3722,16),
 (3724,3747,16),
@@ -676,6 +772,10 @@ public def rows11 : List Row := [
 (3784,3788,32),
 (3789,3789,17179869216),
 (3790,3790,32),
+]
+
+@[expose]
+public def rows34 : List Row := [
 (3792,3801,256),
 (3804,3807,16),
 (3840,3840,16),
@@ -692,6 +792,10 @@ public def rows11 : List Row := [
 (3893,3893,32),
 (3894,3894,2097152),
 (3895,3895,32),
+]
+
+@[expose]
+public def rows35 : List Row := [
 (3896,3896,2097152),
 (3897,3897,32),
 (3898,3901,24576),
@@ -711,7 +815,7 @@ public def rows11 : List Row := [
 ]
 
 @[expose]
-public def rows12 : List Row := [
+public def rows36 : List Row := [
 (4038,4038,32),
 (4039,4044,2097152),
 (4046,4047,2097152),
@@ -728,6 +832,10 @@ public def rows12 : List Row := [
 (4153,4154,32),
 (4155,4156,17179869248),
 (4157,4158,17179869216),
+]
+
+@[expose]
+public def rows37 : List Row := [
 (4159,4159,16),
 (4160,4169,256),
 (4170,4175,131072),
@@ -744,6 +852,10 @@ public def rows12 : List Row := [
 (4209,4212,17179869216),
 (4213,4225,16),
 (4226,4226,17179869216),
+]
+
+@[expose]
+public def rows38 : List Row := [
 (4227,4228,17179869248),
 (4229,4230,17179869216),
 (4231,4236,17179869248),
@@ -763,7 +875,7 @@ public def rows12 : List Row := [
 ]
 
 @[expose]
-public def rows13 : List Row := [
+public def rows39 : List Row := [
 (4349,4351,2),
 (4352,4680,16),
 (4682,4685,16),
@@ -780,6 +892,10 @@ public def rows13 : List Row := [
 (4808,4822,16),
 (4824,4880,16),
 (4882,4885,16),
+]
+
+@[expose]
+public def rows40 : List Row := [
 (4888,4954,16),
 (4957,4959,32),
 (4960,4968,131072),
@@ -796,6 +912,10 @@ public def rows13 : List Row := [
 (5760,5760,4194304),
 (5761,5786,16),
 (5787,5788,2147508224),
+]
+
+@[expose]
+public def rows41 : List Row := [
 (5792,5866,16),
 (5867,5869,131072),
 (5870,5872,512),
@@ -815,7 +935,7 @@ public def rows13 : List Row := [
 ]
 
 @[expose]
-public def rows14 : List Row := [
+public def rows42 : List Row := [
 (6002,6003,17179869216),
 (6016,6067,16),
 (6068,6069,32),
@@ -832,6 +952,10 @@ public def rows14 : List Row := [
 (6108,6108,16),
 (6109,6109,32),
 (6112,6121,256),
+]
+
+@[expose]
+public def rows43 : List Row := [
 (6128,6137,1024),
 (6144,6149,131072),
 (6150,6150,4096),
@@ -848,6 +972,10 @@ public def rows14 : List Row := [
 (6279,6312,16),
 (6313,6313,17179869216),
 (6314,6314,16),
+]
+
+@[expose]
+public def rows44 : List Row := [
 (6320,6389,16),
 (6400,6430,16),
 (6432,6434,17179869216),
@@ -867,7 +995,7 @@ public def rows14 : List Row := [
 ]
 
 @[expose]
-public def rows15 : List Row := [
+public def rows45 : List Row := [
 (6576,6601,16),
 (6608,6617,256),
 (6618,6618,1024),
@@ -884,6 +1012,10 @@ public def rows15 : List Row := [
 (6744,6750,17179869216),
 (6752,6752,32),
 (6753,6753,17179869248),
+]
+
+@[expose]
+public def rows46 : List Row := [
 (6754,6754,17179869216),
 (6755,6756,17179869248),
 (6757,6764,17179869216),
@@ -900,6 +1032,10 @@ public def rows15 : List Row := [
 (6846,6846,128),
 (6847,6848,17179869216),
 (6849,6859,32),
+]
+
+@[expose]
+public def rows47 : List Row := [
 (6860,6862,17179869216),
 (6863,6896,32),
 (6912,6915,17179869216),
@@ -919,7 +1055,7 @@ public def rows15 : List Row := [
 ]
 
 @[expose]
-public def rows16 : List Row := [
+public def rows48 : List Row := [
 (6992,7001,256),
 (7002,7008,131072),
 (7009,7018,2097152),
@@ -936,6 +1072,10 @@ public def rows16 : List Row := [
 (7082,7082,64),
 (7083,7083,32),
 (7084,7085,17179869216),
+]
+
+@[expose]
+public def rows49 : List Row := [
 (7086,7087,16),
 (7088,7097,256),
 (7098,7141,16),
@@ -952,6 +1092,10 @@ public def rows16 : List Row := [
 (7204,7211,17179869248),
 (7212,7219,17179869216),
 (7220,7221,17179869248),
+]
+
+@[expose]
+public def rows50 : List Row := [
 (7222,7222,17179869216),
 (7223,7223,32),
 (7227,7231,131072),
@@ -971,7 +1115,7 @@ public def rows16 : List Row := [
 ]
 
 @[expose]
-public def rows17 : List Row := [
+public def rows51 : List Row := [
 (7380,7392,32),
 (7393,7393,64),
 (7394,7400,32),
@@ -988,6 +1132,10 @@ public def rows17 : List Row := [
 (7531,7543,2),
 (7544,7544,8589934600),
 (7545,7578,2),
+]
+
+@[expose]
+public def rows52 : List Row := [
 (7579,7615,8589934600),
 (7616,7634,32),
 (7635,7668,17179869216),
@@ -1004,6 +1152,10 @@ public def rows17 : List Row := [
 (7984,7991,2),
 (7992,7999,1),
 (8000,8005,2),
+]
+
+@[expose]
+public def rows53 : List Row := [
 (8008,8013,1),
 (8016,8023,2),
 (8025,8025,1),
@@ -1023,7 +1175,7 @@ public def rows17 : List Row := [
 ]
 
 @[expose]
-public def rows18 : List Row := [
+public def rows54 : List Row := [
 (8118,8119,2),
 (8120,8123,1),
 (8124,8124,4),
@@ -1040,6 +1192,10 @@ public def rows18 : List Row := [
 (8152,8155,1),
 (8157,8159,1048576),
 (8160,8167,2),
+]
+
+@[expose]
+public def rows55 : List Row := [
 (8168,8172,1),
 (8173,8175,1048576),
 (8178,8180,2),
@@ -1056,6 +1212,10 @@ public def rows18 : List Row := [
 (8218,8218,8192),
 (8219,8220,32768),
 (8221,8221,65536),
+]
+
+@[expose]
+public def rows56 : List Row := [
 (8222,8222,8192),
 (8223,8223,32768),
 (8224,8231,131072),
@@ -1075,7 +1235,7 @@ public def rows18 : List Row := [
 ]
 
 @[expose]
-public def rows19 : List Row := [
+public def rows57 : List Row := [
 (8261,8262,2147508224),
 (8263,8273,131072),
 (8274,8274,262144),
@@ -1092,6 +1252,10 @@ public def rows19 : List Row := [
 (8314,8316,262144),
 (8317,8318,36507246592),
 (8319,8319,8589934600),
+]
+
+@[expose]
+public def rows58 : List Row := [
 (8320,8329,1024),
 (8330,8332,262144),
 (8333,8334,36507246592),
@@ -1108,6 +1272,10 @@ public def rows19 : List Row := [
 (8432,8432,32),
 (8448,8449,2097152),
 (8450,8450,34359738369),
+]
+
+@[expose]
+public def rows59 : List Row := [
 (8451,8454,2097152),
 (8455,8455,34359738369),
 (8456,8457,2097152),
@@ -1127,7 +1295,7 @@ public def rows19 : List Row := [
 ]
 
 @[expose]
-public def rows20 : List Row := [
+public def rows60 : List Row := [
 (8486,8486,1),
 (8487,8487,2097152),
 (8488,8488,34359738369),
@@ -1144,6 +1312,10 @@ public def rows20 : List Row := [
 (8506,8507,2097152),
 (8508,8509,34359738370),
 (8510,8511,34359738369),
+]
+
+@[expose]
+public def rows61 : List Row := [
 (8512,8516,262144),
 (8517,8518,36507222023),
 (8519,8521,34359738370),
@@ -1160,6 +1332,10 @@ public def rows20 : List Row := [
 (8581,8584,512),
 (8585,8585,1024),
 (8586,8587,2097152),
+]
+
+@[expose]
+public def rows62 : List Row := [
 (8592,8596,262144),
 (8597,8601,34361835520),
 (8602,8603,262144),
@@ -1179,7 +1355,7 @@ public def rows20 : List Row := [
 ]
 
 @[expose]
-public def rows21 : List Row := [
+public def rows63 : List Row := [
 (8630,8631,34361835520),
 (8632,8635,2097152),
 (8636,8653,34361835520),
@@ -1196,6 +1372,10 @@ public def rows21 : List Row := [
 (8678,8691,2097152),
 (8692,8959,262144),
 (8960,8967,2097152),
+]
+
+@[expose]
+public def rows64 : List Row := [
 (8968,8971,34359762944),
 (8972,8991,2097152),
 (8992,8993,262144),
@@ -1212,6 +1392,10 @@ public def rows21 : List Row := [
 (9168,9168,34361835520),
 (9169,9179,2097152),
 (9180,9185,262144),
+]
+
+@[expose]
+public def rows65 : List Row := [
 (9186,9186,34361835520),
 (9187,9257,2097152),
 (9280,9290,2097152),
@@ -1231,7 +1415,7 @@ public def rows21 : List Row := [
 ]
 
 @[expose]
-public def rows22 : List Row := [
+public def rows66 : List Row := [
 (9666,9669,2097152),
 (9670,9671,34361835520),
 (9672,9673,2097152),
@@ -1248,6 +1432,10 @@ public def rows22 : List Row := [
 (9720,9727,262144),
 (9728,9732,2097152),
 (9733,9734,34361835520),
+]
+
+@[expose]
+public def rows67 : List Row := [
 (9735,9791,2097152),
 (9792,9792,34361835520),
 (9793,9793,2097152),
@@ -1264,6 +1452,10 @@ public def rows22 : List Row := [
 (10176,10180,262144),
 (10181,10182,36507246592),
 (10183,10213,262144),
+]
+
+@[expose]
+public def rows68 : List Row := [
 (10214,10223,34359762944),
 (10224,10239,262144),
 (10240,10495,2097152),
@@ -1283,7 +1475,7 @@ public def rows22 : List Row := [
 ]
 
 @[expose]
-public def rows23 : List Row := [
+public def rows69 : List Row := [
 (11264,11311,1),
 (11312,11359,2),
 (11360,11362,7),
@@ -1300,6 +1492,10 @@ public def rows23 : List Row := [
 (11492,11492,2),
 (11493,11498,2097152),
 (11499,11502,2147483655),
+]
+
+@[expose]
+public def rows70 : List Row := [
 (11503,11505,32),
 (11506,11507,7),
 (11513,11516,131072),
@@ -1316,6 +1512,10 @@ public def rows23 : List Row := [
 (11680,11686,16),
 (11688,11694,16),
 (11696,11702,16),
+]
+
+@[expose]
+public def rows71 : List Row := [
 (11704,11710,16),
 (11712,11718,16),
 (11720,11726,16),
@@ -1335,7 +1535,7 @@ public def rows23 : List Row := [
 ]
 
 @[expose]
-public def rows24 : List Row := [
+public def rows72 : List Row := [
 (11803,11803,131072),
 (11804,11805,98304),
 (11806,11807,131072),
@@ -1352,6 +1552,10 @@ public def rows24 : List Row := [
 (11843,11855,131072),
 (11856,11857,2097152),
 (11858,11860,131072),
+]
+
+@[expose]
+public def rows73 : List Row := [
 (11861,11868,2147508224),
 (11869,11869,4096),
 (11872,11873,131072),
@@ -1368,6 +1572,10 @@ public def rows24 : List Row := [
 (12295,12295,512),
 (12296,12305,24576),
 (12306,12307,2097152),
+]
+
+@[expose]
+public def rows74 : List Row := [
 (12308,12315,24576),
 (12316,12316,4096),
 (12317,12318,2147508224),
@@ -1387,7 +1595,7 @@ public def rows24 : List Row := [
 ]
 
 @[expose]
-public def rows25 : List Row := [
+public def rows75 : List Row := [
 (12353,12438,16),
 (12441,12442,32),
 (12443,12444,1048576),
@@ -1404,6 +1612,10 @@ public def rows25 : List Row := [
 (12690,12693,1024),
 (12694,12703,2097152),
 (12704,12735,16),
+]
+
+@[expose]
+public def rows76 : List Row := [
 (12736,12773,2097152),
 (12783,12783,2097152),
 (12784,12799,16),
@@ -1420,6 +1632,10 @@ public def rows25 : List Row := [
 (12992,13311,2097152),
 (13312,19903,16),
 (19904,19967,2097152),
+]
+
+@[expose]
+public def rows77 : List Row := [
 (19968,40980,16),
 (40981,40981,8),
 (40982,42124,16),
@@ -1439,7 +1655,7 @@ public def rows25 : List Row := [
 ]
 
 @[expose]
-public def rows26 : List Row := [
+public def rows78 : List Row := [
 (42608,42610,128),
 (42611,42611,131072),
 (42612,42619,17179869216),
@@ -1456,6 +1672,10 @@ public def rows26 : List Row := [
 (42752,42774,1048576),
 (42775,42783,8),
 (42784,42785,1048576),
+]
+
+@[expose]
+public def rows79 : List Row := [
 (42786,42799,7),
 (42800,42801,2),
 (42802,42863,7),
@@ -1472,6 +1692,10 @@ public def rows26 : List Row := [
 (42902,42922,7),
 (42923,42926,1),
 (42927,42928,7),
+]
+
+@[expose]
+public def rows80 : List Row := [
 (42929,42932,1),
 (42933,42948,7),
 (42949,42951,1),
@@ -1491,7 +1715,7 @@ public def rows26 : List Row := [
 ]
 
 @[expose]
-public def rows27 : List Row := [
+public def rows81 : List Row := [
 (43015,43018,16),
 (43019,43019,17179869216),
 (43020,43042,16),
@@ -1508,6 +1732,10 @@ public def rows27 : List Row := [
 (43124,43127,131072),
 (43136,43137,17179869248),
 (43138,43187,16),
+]
+
+@[expose]
+public def rows82 : List Row := [
 (43188,43203,17179869248),
 (43204,43204,32),
 (43205,43205,17179869216),
@@ -1524,6 +1752,10 @@ public def rows27 : List Row := [
 (43274,43301,16),
 (43302,43306,17179869216),
 (43307,43309,32),
+]
+
+@[expose]
+public def rows83 : List Row := [
 (43310,43311,131072),
 (43312,43334,16),
 (43335,43345,17179869216),
@@ -1543,7 +1775,7 @@ public def rows27 : List Row := [
 ]
 
 @[expose]
-public def rows28 : List Row := [
+public def rows84 : List Row := [
 (43456,43456,64),
 (43457,43469,131072),
 (43471,43471,8),
@@ -1560,6 +1792,10 @@ public def rows28 : List Row := [
 (43567,43568,17179869248),
 (43569,43570,17179869216),
 (43571,43572,17179869248),
+]
+
+@[expose]
+public def rows85 : List Row := [
 (43573,43574,17179869216),
 (43584,43586,16),
 (43587,43587,17179869216),
@@ -1576,6 +1812,10 @@ public def rows28 : List Row := [
 (43643,43643,17179869248),
 (43644,43644,17179869216),
 (43645,43645,17179869248),
+]
+
+@[expose]
+public def rows86 : List Row := [
 (43646,43695,16),
 (43696,43696,17179869216),
 (43697,43697,16),
@@ -1595,7 +1835,7 @@ public def rows28 : List Row := [
 ]
 
 @[expose]
-public def rows29 : List Row := [
+public def rows87 : List Row := [
 (43755,43755,17179869248),
 (43756,43757,17179869216),
 (43758,43759,17179869248),
@@ -1612,6 +1852,10 @@ public def rows29 : List Row := [
 (43824,43866,2),
 (43867,43867,1048576),
 (43868,43871,8589934600),
+]
+
+@[expose]
+public def rows88 : List Row := [
 (43872,43880,2),
 (43881,43881,8589934600),
 (43882,43883,1048576),
@@ -1628,6 +1872,10 @@ public def rows29 : List Row := [
 (44013,44013,32),
 (44016,44025,256),
 (44032,55203,16),
+]
+
+@[expose]
+public def rows89 : List Row := [
 (55216,55238,16),
 (55243,55291,16),
 (55296,57343,134217728),
@@ -1647,7 +1895,7 @@ public def rows29 : List Row := [
 ]
 
 @[expose]
-public def rows30 : List Row := [
+public def rows90 : List Row := [
 (64323,64324,16),
 (64326,64433,16),
 (64434,64450,1048576),
@@ -1664,6 +1912,10 @@ public def rows30 : List Row := [
 (65021,65023,2097152),
 (65024,65039,32),
 (65040,65046,131072),
+]
+
+@[expose]
+public def rows91 : List Row := [
 (65047,65048,2147508224),
 (65049,65049,131072),
 (65056,65071,32),
@@ -1680,6 +1932,10 @@ public def rows30 : List Row := [
 (65112,65112,4096),
 (65113,65118,2147508224),
 (65119,65120,131072),
+]
+
+@[expose]
+public def rows92 : List Row := [
 (65121,65121,34359869440),
 (65122,65122,262144),
 (65123,65123,34359742464),
@@ -1699,7 +1955,7 @@ public def rows30 : List Row := [
 ]
 
 @[expose]
-public def rows31 : List Row := [
+public def rows93 : List Row := [
 (65292,65292,131072),
 (65293,65293,4096),
 (65294,65295,131072),
@@ -1716,6 +1972,10 @@ public def rows31 : List Row := [
 (65344,65344,1048576),
 (65345,65370,2),
 (65371,65371,8192),
+]
+
+@[expose]
+public def rows94 : List Row := [
 (65372,65372,262144),
 (65373,65373,16384),
 (65374,65374,262144),
@@ -1732,6 +1992,10 @@ public def rows31 : List Row := [
 (65482,65487,16),
 (65490,65495,16),
 (65498,65500,16),
+]
+
+@[expose]
+public def rows95 : List Row := [
 (65504,65505,524288),
 (65506,65506,262144),
 (65507,65507,1048576),
@@ -1751,7 +2015,7 @@ public def rows31 : List Row := [
 ]
 
 @[expose]
-public def rows32 : List Row := [
+public def rows96 : List Row := [
 (65664,65786,16),
 (65792,65794,131072),
 (65799,65843,1024),
@@ -1768,6 +2032,10 @@ public def rows32 : List Row := [
 (66176,66204,16),
 (66208,66256,16),
 (66272,66272,32),
+]
+
+@[expose]
+public def rows97 : List Row := [
 (66273,66299,1024),
 (66304,66335,16),
 (66336,66339,1024),
@@ -1784,6 +2052,10 @@ public def rows32 : List Row := [
 (66512,66512,131072),
 (66513,66517,512),
 (66560,66599,1),
+]
+
+@[expose]
+public def rows98 : List Row := [
 (66600,66639,2),
 (66640,66717,16),
 (66720,66729,256),
@@ -1803,7 +2075,7 @@ public def rows32 : List Row := [
 ]
 
 @[expose]
-public def rows33 : List Row := [
+public def rows99 : List Row := [
 (67008,67059,16),
 (67072,67382,16),
 (67392,67413,16),
@@ -1820,6 +2092,10 @@ public def rows33 : List Row := [
 (67644,67644,16),
 (67647,67669,16),
 (67671,67671,131072),
+]
+
+@[expose]
+public def rows100 : List Row := [
 (67672,67679,1024),
 (67680,67702,16),
 (67703,67704,2097152),
@@ -1836,6 +2112,10 @@ public def rows33 : List Row := [
 (67903,67903,131072),
 (67904,67929,16),
 (67968,68023,16),
+]
+
+@[expose]
+public def rows101 : List Row := [
 (68028,68029,1024),
 (68030,68031,16),
 (68032,68047,1024),
@@ -1855,7 +2135,7 @@ public def rows33 : List Row := [
 ]
 
 @[expose]
-public def rows34 : List Row := [
+public def rows102 : List Row := [
 (68221,68222,1024),
 (68223,68223,131072),
 (68224,68252,16),
@@ -1872,6 +2152,10 @@ public def rows34 : List Row := [
 (68440,68447,1024),
 (68448,68466,16),
 (68472,68479,1024),
+]
+
+@[expose]
+public def rows103 : List Row := [
 (68480,68497,16),
 (68505,68508,131072),
 (68521,68527,1024),
@@ -1888,6 +2172,10 @@ public def rows34 : List Row := [
 (68943,68943,16),
 (68944,68965,1),
 (68969,68969,17179869216),
+]
+
+@[expose]
+public def rows104 : List Row := [
 (68970,68973,32),
 (68974,68974,4096),
 (68975,68975,8),
@@ -1907,7 +2195,7 @@ public def rows34 : List Row := [
 ]
 
 @[expose]
-public def rows35 : List Row := [
+public def rows105 : List Row := [
 (69328,69328,131072),
 (69329,69336,2097152),
 (69337,69358,16),
@@ -1924,6 +2212,10 @@ public def rows35 : List Row := [
 (69405,69414,1024),
 (69415,69415,16),
 (69424,69445,16),
+]
+
+@[expose]
+public def rows106 : List Row := [
 (69446,69456,32),
 (69457,69460,1024),
 (69461,69465,131072),
@@ -1940,6 +2232,10 @@ public def rows35 : List Row := [
 (69688,69701,17179869216),
 (69702,69702,32),
 (69703,69709,131072),
+]
+
+@[expose]
+public def rows107 : List Row := [
 (69714,69733,1024),
 (69734,69743,256),
 (69744,69744,32),
@@ -1959,7 +2255,7 @@ public def rows35 : List Row := [
 ]
 
 @[expose]
-public def rows36 : List Row := [
+public def rows108 : List Row := [
 (69822,69825,131072),
 (69826,69826,17179869216),
 (69837,69837,67108864),
@@ -1976,6 +2272,10 @@ public def rows36 : List Row := [
 (69956,69956,16),
 (69957,69958,17179869248),
 (69959,69959,16),
+]
+
+@[expose]
+public def rows109 : List Row := [
 (69968,70002,16),
 (70003,70003,32),
 (70004,70005,131072),
@@ -1992,6 +2292,10 @@ public def rows36 : List Row := [
 (70089,70092,32),
 (70093,70093,131072),
 (70094,70094,17179869248),
+]
+
+@[expose]
+public def rows110 : List Row := [
 (70095,70095,17179869216),
 (70096,70105,256),
 (70106,70106,16),
@@ -2011,7 +2315,7 @@ public def rows36 : List Row := [
 ]
 
 @[expose]
-public def rows37 : List Row := [
+public def rows111 : List Row := [
 (70200,70205,131072),
 (70206,70206,17179869216),
 (70207,70208,16),
@@ -2028,6 +2332,10 @@ public def rows37 : List Row := [
 (70371,70376,17179869216),
 (70377,70378,32),
 (70384,70393,256),
+]
+
+@[expose]
+public def rows112 : List Row := [
 (70400,70401,17179869216),
 (70402,70403,17179869248),
 (70405,70412,16),
@@ -2044,6 +2352,10 @@ public def rows37 : List Row := [
 (70471,70472,17179869248),
 (70475,70476,17179869248),
 (70477,70477,64),
+]
+
+@[expose]
+public def rows113 : List Row := [
 (70480,70480,16),
 (70487,70487,17179869248),
 (70493,70497,16),
@@ -2063,7 +2375,7 @@ public def rows37 : List Row := [
 ]
 
 @[expose]
-public def rows38 : List Row := [
+public def rows114 : List Row := [
 (70604,70605,17179869248),
 (70606,70606,32),
 (70607,70607,64),
@@ -2080,6 +2392,10 @@ public def rows38 : List Row := [
 (70720,70721,17179869248),
 (70722,70722,32),
 (70723,70724,17179869216),
+]
+
+@[expose]
+public def rows115 : List Row := [
 (70725,70725,17179869248),
 (70726,70726,32),
 (70727,70730,16),
@@ -2096,6 +2412,10 @@ public def rows38 : List Row := [
 (70842,70842,17179869216),
 (70843,70846,17179869248),
 (70847,70848,17179869216),
+]
+
+@[expose]
+public def rows116 : List Row := [
 (70849,70849,17179869248),
 (70850,70851,32),
 (70852,70853,16),
@@ -2115,7 +2435,7 @@ public def rows38 : List Row := [
 ]
 
 @[expose]
-public def rows39 : List Row := [
+public def rows117 : List Row := [
 (71168,71215,16),
 (71216,71218,17179869248),
 (71219,71226,17179869216),
@@ -2132,6 +2452,10 @@ public def rows39 : List Row := [
 (71339,71339,17179869216),
 (71340,71340,17179869248),
 (71341,71341,17179869216),
+]
+
+@[expose]
+public def rows118 : List Row := [
 (71342,71343,17179869248),
 (71344,71349,17179869216),
 (71350,71350,64),
@@ -2148,6 +2472,10 @@ public def rows39 : List Row := [
 (71458,71461,17179869216),
 (71462,71462,17179869248),
 (71463,71466,17179869216),
+]
+
+@[expose]
+public def rows119 : List Row := [
 (71467,71467,32),
 (71472,71481,256),
 (71482,71483,1024),
@@ -2167,7 +2495,7 @@ public def rows39 : List Row := [
 ]
 
 @[expose]
-public def rows40 : List Row := [
+public def rows120 : List Row := [
 (71935,71942,16),
 (71945,71945,16),
 (71948,71955,16),
@@ -2184,6 +2512,10 @@ public def rows40 : List Row := [
 (72002,72002,17179869248),
 (72003,72003,32),
 (72004,72006,131072),
+]
+
+@[expose]
+public def rows121 : List Row := [
 (72016,72025,256),
 (72096,72103,16),
 (72106,72144,16),
@@ -2200,6 +2532,10 @@ public def rows40 : List Row := [
 (72193,72202,17179869216),
 (72203,72242,16),
 (72243,72244,32),
+]
+
+@[expose]
+public def rows122 : List Row := [
 (72245,72248,17179869216),
 (72249,72249,17179869248),
 (72250,72250,16),
@@ -2219,7 +2555,7 @@ public def rows40 : List Row := [
 ]
 
 @[expose]
-public def rows41 : List Row := [
+public def rows123 : List Row := [
 (72350,72354,131072),
 (72368,72440,16),
 (72448,72457,131072),
@@ -2236,6 +2572,10 @@ public def rows41 : List Row := [
 (72704,72712,16),
 (72714,72750,16),
 (72751,72751,17179869248),
+]
+
+@[expose]
+public def rows124 : List Row := [
 (72752,72758,17179869216),
 (72760,72765,17179869216),
 (72766,72766,17179869248),
@@ -2252,6 +2592,10 @@ public def rows41 : List Row := [
 (72881,72881,17179869248),
 (72882,72883,17179869216),
 (72884,72884,17179869248),
+]
+
+@[expose]
+public def rows125 : List Row := [
 (72885,72886,17179869216),
 (72960,72966,16),
 (72968,72969,16),
@@ -2271,7 +2615,7 @@ public def rows41 : List Row := [
 ]
 
 @[expose]
-public def rows42 : List Row := [
+public def rows126 : List Row := [
 (73066,73097,16),
 (73098,73102,17179869248),
 (73104,73105,17179869216),
@@ -2288,6 +2632,10 @@ public def rows42 : List Row := [
 (73200,73200,17179869216),
 (73201,73201,16),
 (73440,73458,16),
+]
+
+@[expose]
+public def rows127 : List Row := [
 (73459,73460,17179869216),
 (73461,73462,17179869248),
 (73463,73464,131072),
@@ -2304,6 +2652,10 @@ public def rows42 : List Row := [
 (73538,73538,32),
 (73539,73551,131072),
 (73552,73561,256),
+]
+
+@[expose]
+public def rows128 : List Row := [
 (73562,73562,32),
 (73648,73648,16),
 (73664,73684,1024),
@@ -2323,7 +2675,7 @@ public def rows42 : List Row := [
 ]
 
 @[expose]
-public def rows43 : List Row := [
+public def rows129 : List Row := [
 (78896,78911,67108864),
 (78912,78912,32),
 (78913,78918,16),
@@ -2340,6 +2692,10 @@ public def rows43 : List Row := [
 (92736,92766,16),
 (92768,92777,256),
 (92782,92783,131072),
+]
+
+@[expose]
+public def rows130 : List Row := [
 (92784,92862,16),
 (92864,92873,256),
 (92880,92909,16),
@@ -2356,6 +2712,10 @@ public def rows43 : List Row := [
 (93019,93025,1024),
 (93027,93047,16),
 (93053,93071,16),
+]
+
+@[expose]
+public def rows131 : List Row := [
 (93504,93506,8),
 (93507,93546,16),
 (93547,93548,8),
@@ -2375,7 +2735,7 @@ public def rows43 : List Row := [
 ]
 
 @[expose]
-public def rows44 : List Row := [
+public def rows132 : List Row := [
 (94099,94111,8),
 (94176,94177,8),
 (94178,94178,131072),
@@ -2392,6 +2752,10 @@ public def rows44 : List Row := [
 (110576,110579,8),
 (110581,110587,8),
 (110589,110590,8),
+]
+
+@[expose]
+public def rows133 : List Row := [
 (110592,110888,16),
 (110898,110898,16),
 (110928,110930,16),
@@ -2408,6 +2772,10 @@ public def rows44 : List Row := [
 (113823,113823,131072),
 (113824,113827,67108864),
 (117760,117999,2097152),
+]
+
+@[expose]
+public def rows134 : List Row := [
 (118000,118009,256),
 (118010,118012,2097152),
 (118016,118451,2097152),
@@ -2427,7 +2795,7 @@ public def rows44 : List Row := [
 ]
 
 @[expose]
-public def rows45 : List Row := [
+public def rows135 : List Row := [
 (119143,119145,32),
 (119146,119148,2097152),
 (119149,119154,64),
@@ -2444,6 +2812,10 @@ public def rows45 : List Row := [
 (119379,119386,2097152),
 (119387,119388,32),
 (119389,119390,2097152),
+]
+
+@[expose]
+public def rows136 : List Row := [
 (119391,119391,64),
 (119392,119423,2097152),
 (119424,119425,64),
@@ -2460,6 +2832,10 @@ public def rows45 : List Row := [
 (119938,119963,34359738370),
 (119964,119964,34359738369),
 (119966,119967,34359738369),
+]
+
+@[expose]
+public def rows137 : List Row := [
 (119970,119970,34359738369),
 (119973,119974,34359738369),
 (119977,119980,34359738369),
@@ -2479,7 +2855,7 @@ public def rows45 : List Row := [
 ]
 
 @[expose]
-public def rows46 : List Row := [
+public def rows138 : List Row := [
 (120123,120126,34359738369),
 (120128,120132,34359738369),
 (120134,120134,34359738369),
@@ -2496,6 +2872,10 @@ public def rows46 : List Row := [
 (120380,120405,34359738369),
 (120406,120431,34359738370),
 (120432,120457,34359738369),
+]
+
+@[expose]
+public def rows139 : List Row := [
 (120458,120486,34359738370),
 (120488,120512,34359738369),
 (120513,120513,262144),
@@ -2512,6 +2892,10 @@ public def rows46 : List Row := [
 (120630,120654,34359738370),
 (120655,120655,262144),
 (120656,120661,34359738370),
+]
+
+@[expose]
+public def rows140 : List Row := [
 (120662,120686,34359738369),
 (120687,120687,262144),
 (120688,120712,34359738370),
@@ -2531,7 +2915,7 @@ public def rows46 : List Row := [
 ]
 
 @[expose]
-public def rows47 : List Row := [
+public def rows141 : List Row := [
 (121453,121460,2097152),
 (121461,121461,32),
 (121462,121475,2097152),
@@ -2548,6 +2932,10 @@ public def rows47 : List Row := [
 (122690,122695,2),
 (122696,122699,7),
 (122700,122702,2147483655),
+]
+
+@[expose]
+public def rows142 : List Row := [
 (122703,122704,2),
 (122705,122706,2147483655),
 (122707,122727,2),
@@ -2564,6 +2952,10 @@ public def rows47 : List Row := [
 (122918,122922,17179869216),
 (122928,122989,8589934600),
 (123023,123023,17179869216),
+]
+
+@[expose]
+public def rows143 : List Row := [
 (123136,123180,16),
 (123184,123190,32),
 (123191,123197,8),
@@ -2583,7 +2975,7 @@ public def rows47 : List Row := [
 ]
 
 @[expose]
-public def rows48 : List Row := [
+public def rows144 : List Row := [
 (124368,124397,16),
 (124398,124399,32),
 (124400,124400,16),
@@ -2600,6 +2992,10 @@ public def rows48 : List Row := [
 (124661,124661,17179869216),
 (124670,124670,16),
 (124671,124671,8),
+]
+
+@[expose]
+public def rows145 : List Row := [
 (124896,124902,16),
 (124904,124907,16),
 (124909,124910,16),
@@ -2616,6 +3012,10 @@ public def rows48 : List Row := [
 (125264,125273,256),
 (125278,125279,131072),
 (126065,126123,1024),
+]
+
+@[expose]
+public def rows146 : List Row := [
 (126124,126124,2097152),
 (126125,126127,1024),
 (126128,126128,524288),
@@ -2635,7 +3035,7 @@ public def rows48 : List Row := [
 ]
 
 @[expose]
-public def rows49 : List Row := [
+public def rows147 : List Row := [
 (126530,126530,34359738384),
 (126535,126535,34359738384),
 (126537,126537,34359738384),
@@ -2652,6 +3052,10 @@ public def rows49 : List Row := [
 (126564,126564,34359738384),
 (126567,126570,34359738384),
 (126572,126578,34359738384),
+]
+
+@[expose]
+public def rows148 : List Row := [
 (126580,126583,34359738384),
 (126585,126588,34359738384),
 (126590,126590,34359738384),
@@ -2668,6 +3072,10 @@ public def rows49 : List Row := [
 (127169,127183,2097152),
 (127185,127221,2097152),
 (127232,127244,1024),
+]
+
+@[expose]
+public def rows149 : List Row := [
 (127245,127279,2097152),
 (127280,127305,21476933632),
 (127306,127311,2097152),
@@ -2687,7 +3095,7 @@ public def rows49 : List Row := [
 ]
 
 @[expose]
-public def rows50 : List Row := [
+public def rows150 : List Row := [
 (128752,128764,2097152),
 (128768,128986,2097152),
 (128987,128987,34361835520),
@@ -2704,6 +3112,10 @@ public def rows50 : List Row := [
 (129232,129240,262144),
 (129280,129623,2097152),
 (129632,129645,2097152),
+]
+
+@[expose]
+public def rows151 : List Row := [
 (129648,129660,2097152),
 (129664,129734,2097152),
 (129736,129736,2097152),
@@ -2720,6 +3132,10 @@ public def rows50 : List Row := [
 (183984,191456,16),
 (191472,192093,16),
 (194560,195101,16),
+]
+
+@[expose]
+public def rows152 : List Row := [
 (196608,201546,16),
 (201552,210041,16),
 (249856,261183,16),
@@ -2730,73 +3146,326 @@ public def rows50 : List Row := [
 (1048576,1114109,268435456),
 ]
 
-/-- The rows in chunks, each with the last code point of its last row -/
+/-- The rows as a search tree, split in halves -/
 @[expose]
-public def chunks : List (Nat × List Row) := [
-(184, rows0),
-(495, rows1),
-(939, rows2),
-(1541, rows3),
-(1993, rows4),
-(2381, rows5),
-(2614, rows6),
-(2873, rows7),
-(3088, rows8),
-(3344, rows9),
-(3714, rows10),
-(4037, rows11),
-(4348, rows12),
-(6000, rows13),
-(6571, rows14),
-(6991, rows15),
-(7379, rows16),
-(8116, rows17),
-(8260, rows18),
-(8485, rows19),
-(8629, rows20),
-(9665, rows21),
-(11263, rows22),
-(11802, rows23),
-(12351, rows24),
-(42607, rows25),
-(43014, rows26),
-(43455, rows27),
-(43754, rows28),
-(64321, rows29),
-(65291, rows30),
-(65629, rows31),
-(67004, rows32),
-(68220, rows33),
-(69327, rows34),
-(69821, rows35),
-(70199, rows36),
-(70602, rows37),
-(71133, rows38),
-(71922, rows39),
-(72349, rows40),
-(73064, rows41),
-(78895, rows42),
-(94098, rows43),
-(119142, rows44),
-(120121, rows45),
-(121452, rows46),
-(124153, rows47),
-(126523, rows48),
-(128748, rows49),
-(1114109, rows50),
-]
+public def tree : Tree :=
+  (.node 12735
+   (.node 4226
+    (.node 2472
+     (.node 939
+      (.node 384
+       (.node 166
+        (.node 90
+         (.leaf rows0)
+         (.leaf rows1))
+        (.node 184
+         (.leaf rows2)
+         (.leaf rows3)))
+       (.node 495
+        (.node 433
+         (.leaf rows4)
+         (.leaf rows5))
+        (.node 696
+         (.leaf rows6)
+         (.node 883
+          (.leaf rows7)
+          (.leaf rows8)))))
+      (.node 1773
+       (.node 1420
+        (.node 1071
+         (.leaf rows9)
+         (.leaf rows10))
+        (.node 1541
+         (.leaf rows11)
+         (.node 1641
+          (.leaf rows12)
+          (.leaf rows13))))
+       (.node 2088
+        (.node 1993
+         (.leaf rows14)
+         (.leaf rows15))
+        (.node 2259
+         (.leaf rows16)
+         (.node 2381
+          (.leaf rows17)
+          (.leaf rows18))))))
+     (.node 3191
+      (.node 2768
+       (.node 2614
+        (.node 2543
+         (.leaf rows19)
+         (.leaf rows20))
+        (.node 2690
+         (.leaf rows21)
+         (.leaf rows22)))
+       (.node 2927
+        (.node 2873
+         (.leaf rows23)
+         (.leaf rows24))
+        (.node 3008
+         (.leaf rows25)
+         (.node 3088
+          (.leaf rows26)
+          (.leaf rows27)))))
+      (.node 3714
+       (.node 3344
+        (.node 3268
+         (.leaf rows28)
+         (.leaf rows29))
+        (.node 3439
+         (.leaf rows30)
+         (.node 3567
+          (.leaf rows31)
+          (.leaf rows32))))
+       (.node 3895
+        (.node 3790
+         (.leaf rows33)
+         (.leaf rows34))
+        (.node 4037
+         (.leaf rows35)
+         (.node 4158
+          (.leaf rows36)
+          (.leaf rows37)))))))
+    (.node 8260
+     (.node 6859
+      (.node 6000
+       (.node 4885
+        (.node 4348
+         (.leaf rows38)
+         (.leaf rows39))
+        (.node 5788
+         (.leaf rows40)
+         (.leaf rows41)))
+       (.node 6314
+        (.node 6121
+         (.leaf rows42)
+         (.leaf rows43))
+        (.node 6571
+         (.leaf rows44)
+         (.node 6753
+          (.leaf rows45)
+          (.leaf rows46)))))
+      (.node 7578
+       (.node 7085
+        (.node 6991
+         (.leaf rows47)
+         (.leaf rows48))
+        (.node 7221
+         (.leaf rows49)
+         (.node 7379
+          (.leaf rows50)
+          (.leaf rows51))))
+       (.node 8116
+        (.node 8005
+         (.leaf rows52)
+         (.leaf rows53))
+        (.node 8167
+         (.leaf rows54)
+         (.node 8221
+          (.leaf rows55)
+          (.leaf rows56))))))
+     (.node 9665
+      (.node 8511
+       (.node 8450
+        (.node 8319
+         (.leaf rows57)
+         (.leaf rows58))
+        (.node 8485
+         (.leaf rows59)
+         (.leaf rows60)))
+       (.node 8629
+        (.node 8587
+         (.leaf rows61)
+         (.leaf rows62))
+        (.node 8967
+         (.leaf rows63)
+         (.node 9185
+          (.leaf rows64)
+          (.leaf rows65)))))
+      (.node 11702
+       (.node 10213
+        (.node 9734
+         (.leaf rows66)
+         (.leaf rows67))
+        (.node 11263
+         (.leaf rows68)
+         (.node 11502
+          (.leaf rows69)
+          (.leaf rows70))))
+       (.node 11860
+        (.node 11802
+         (.leaf rows71)
+         (.leaf rows72))
+        (.node 12307
+         (.leaf rows73)
+         (.node 12351
+          (.leaf rows74)
+          (.leaf rows75))))))))
+   (.node 70602
+    (.node 65500
+     (.node 43572
+      (.node 42928
+       (.node 42607
+        (.node 19967
+         (.leaf rows76)
+         (.leaf rows77))
+        (.node 42785
+         (.leaf rows78)
+         (.leaf rows79)))
+       (.node 43187
+        (.node 43014
+         (.leaf rows80)
+         (.leaf rows81))
+        (.node 43309
+         (.leaf rows82)
+         (.node 43455
+          (.leaf rows83)
+          (.leaf rows84)))))
+      (.node 64321
+       (.node 43754
+        (.node 43645
+         (.leaf rows85)
+         (.leaf rows86))
+        (.node 43871
+         (.leaf rows87)
+         (.node 55203
+          (.leaf rows88)
+          (.leaf rows89))))
+       (.node 65120
+        (.node 65046
+         (.leaf rows90)
+         (.leaf rows91))
+        (.node 65291
+         (.leaf rows92)
+         (.node 65371
+          (.leaf rows93)
+          (.leaf rows94))))))
+     (.node 68969
+      (.node 67004
+       (.node 66272
+        (.node 65629
+         (.leaf rows95)
+         (.leaf rows96))
+        (.node 66599
+         (.leaf rows97)
+         (.leaf rows98)))
+       (.node 68023
+        (.node 67671
+         (.leaf rows99)
+         (.leaf rows100))
+        (.node 68220
+         (.leaf rows101)
+         (.node 68479
+          (.leaf rows102)
+          (.leaf rows103)))))
+      (.node 69959
+       (.node 69445
+        (.node 69327
+         (.leaf rows104)
+         (.leaf rows105))
+        (.node 69709
+         (.leaf rows106)
+         (.node 69821
+          (.leaf rows107)
+          (.leaf rows108))))
+       (.node 70199
+        (.node 70094
+         (.leaf rows109)
+         (.leaf rows110))
+        (.node 70393
+         (.leaf rows111)
+         (.node 70477
+          (.leaf rows112)
+          (.leaf rows113)))))))
+    (.node 110590
+     (.node 72349
+      (.node 71341
+       (.node 70848
+        (.node 70724
+         (.leaf rows114)
+         (.leaf rows115))
+        (.node 71133
+         (.leaf rows116)
+         (.leaf rows117)))
+       (.node 71922
+        (.node 71466
+         (.leaf rows118)
+         (.leaf rows119))
+        (.node 72006
+         (.leaf rows120)
+         (.node 72244
+          (.leaf rows121)
+          (.leaf rows122)))))
+      (.node 73561
+       (.node 72884
+        (.node 72751
+         (.leaf rows123)
+         (.leaf rows124))
+        (.node 73064
+         (.leaf rows125)
+         (.node 73458
+          (.leaf rows126)
+          (.leaf rows127))))
+       (.node 92783
+        (.node 78895
+         (.leaf rows128)
+         (.leaf rows129))
+        (.node 93071
+         (.leaf rows130)
+         (.node 94098
+          (.leaf rows131)
+          (.leaf rows132))))))
+     (.node 123023
+      (.node 120121
+       (.node 119142
+        (.node 117999
+         (.leaf rows133)
+         (.leaf rows134))
+        (.node 119390
+         (.leaf rows135)
+         (.node 119967
+          (.leaf rows136)
+          (.leaf rows137))))
+       (.node 120661
+        (.node 120457
+         (.leaf rows138)
+         (.leaf rows139))
+        (.node 121452
+         (.leaf rows140)
+         (.node 122702
+          (.leaf rows141)
+          (.leaf rows142)))))
+      (.node 126578
+       (.node 124671
+        (.node 124153
+         (.leaf rows143)
+         (.leaf rows144))
+        (.node 126123
+         (.leaf rows145)
+         (.node 126523
+          (.leaf rows146)
+          (.leaf rows147))))
+       (.node 128748
+        (.node 127244
+         (.leaf rows148)
+         (.leaf rows149))
+        (.node 129645
+         (.leaf rows150)
+         (.node 195101
+          (.leaf rows151)
+          (.leaf rows152)))))))))
 
 /-- The rows of `prop.c` -/
 @[expose]
-public def table : List Row := flatten chunks
+public def table : List Row := tree.rows
 
 /-- General category and `Other_*` property bits of a code point -/
 @[expose]
-public def lookup (c : Nat) : Nat := scanChunks chunks c
+public def lookup (c : Nat) : Nat := tree.lookup c
 
 /-- The lookup is a search of the rows of `prop.c` in order: the value of a code point is that of
 the first row whose last code point is not below it -/
 public theorem lookup_eq_scan (c : Nat) : lookup c = scan table c :=
-  scanChunks_eq_scan (by decide +kernel) c
+  tree.lookup_eq_scan (by decide +kernel) c
 
 end Unicode.PropTable
