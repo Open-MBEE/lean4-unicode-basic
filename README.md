@@ -71,6 +71,8 @@ Then add `import UnicodeBasic` at the top of any Lean file where you plan to use
 
 The main entry point is the root file `UnicodeBasic`. This file contains a description of the main API as well as all primary library functions. The file `UnicodeBasic.Types` contains all the primary data types used in the library.
 
+The general category of a character, and the properties derived from it alone (such as `isAlphabetic`, `isLowercase`, `isUppercase`, `isCased` and `isMath`), have definitions that the kernel can evaluate, so `decide` and `rfl` prove facts about specific characters without `native_decide`. The other properties are looked up in tables that the kernel cannot evaluate; proofs about them need `native_decide`.
+
 The remaining files are implementation details. Some of these may be of interest for developers. For example `UnicodeBasic.CharacterDatabase` defines a stream type for parsing files from the [Unicode Character Database](https://www.unicode.org/Public/UCD/latest/ucd/).
 
 ## Documentation

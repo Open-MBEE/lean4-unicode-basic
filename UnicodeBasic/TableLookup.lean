@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 import UnicodeBasic.CharacterDatabase
 import UnicodeBasic.Hangul
+public import UnicodeBasic.PropTable
 public import UnicodeBasic.Types
 
 /-! # Table lookups
@@ -30,8 +31,9 @@ public protected abbrev oAlpha : UInt64 := 0x400000000
 public protected abbrev oMath  : UInt64 := 0x800000000
 
 /-- General category and `Other_*` property bits of a code point (internal use only) -/
-@[extern "unicode_prop_lookup"]
-public protected opaque lookupProp (c : UInt32) : UInt64
+@[extern "unicode_prop_lookup", expose]
+public protected def lookupProp (c : UInt32) : UInt64 :=
+  (PropTable.lookup c.toNat).toUInt64
 
 @[extern "unicode_script_lookup"]
 protected opaque lookupScript (c : UInt32) : Script

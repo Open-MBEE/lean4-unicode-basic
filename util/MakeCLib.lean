@@ -5,6 +5,8 @@ open Unicode
 
 def clibDir : System.FilePath := ".."/"UnicodeCLib"
 
+def leanDir : System.FilePath := ".."/"UnicodeBasic"
+
 def Unicode.GC.BP : GC := (0x80000000 : UInt32)
 def Unicode.GC.LC0 : GC := GC.LC
 def Unicode.GC.LC1 : GC := GC.LC ||| GC.BP
@@ -143,6 +145,68 @@ static const unicode_data_t table[] = {"
       file.putStrLn s!"\{UINT32_C({c₀}),UINT32_C({c₁}),UINT64_C({d})},"
     file.putStrLn "};"
 
+/-- Rows of the property table in one definition of the Lean table -/
+def propChunk : Nat := 64
+
+/-- Comparison tree over rows `lo` to `hi` of the property table, as Lean source -/
+partial def propTree (lo hi : Nat) (ind : String) : String :=
+  if hi ≤ lo + 1 then
+    let (_, c₁, d) := propTable[lo]!
+    s!"leaf c {c₁} {d}"
+  else
+    let mid := (lo + hi) / 2
+    s!"if c < {propTable[mid]!.1} then\n{ind}  {propTree lo mid (ind ++ "  ")}\n{ind}else\n{ind}  {propTree mid hi (ind ++ "  ")}"
+
+/-- Comparison tree over chunks `lo` to `hi` of the property table, as Lean source -/
+partial def propChunkTree (lo hi : Nat) (ind : String) : String :=
+  if hi ≤ lo + 1 then
+    s!"chunk{lo} c"
+  else
+    let mid := (lo + hi) / 2
+    s!"if c < {propTable[mid * propChunk]!.1} then\n{ind}  {propChunkTree lo mid (ind ++ "  ")}\n{ind}else\n{ind}  {propChunkTree mid hi (ind ++ "  ")}"
+
+def makePropLean : IO Unit :=
+  IO.FS.withFile (leanDir / "PropTable.lean") .write fun file => do
+    file.putStrLn "/- THIS IS A GENERATED FILE - DO NOT EDIT -/
+module
+
+/-!
+  The table of `UnicodeCLib/prop.c` as comparisons that the kernel can evaluate. The compiled
+  lookup is the C function `unicode_prop_lookup`; this is its definition (internal use only).
+-/
+
+namespace Unicode.PropTable
+
+/-- Value of a code point in a table row with the given last code point and data -/
+@[expose]
+public def leaf (c cmax data : Nat) : Nat :=
+  if c ≤ cmax then
+    let gc := data &&& 0x3fffffff
+    let pb := (data >>> 31) &&& 1
+    let op := data &&& 0xffffffff00000000
+    if gc = 0x00000007 then
+      if c &&& 1 = pb then op ||| 0x00000001 else op ||| 0x00000002
+    else if gc = 0x00006000 then
+      if c &&& 1 = pb then op ||| 0x00002000 else op ||| 0x00004000
+    else if gc = 0x00018000 then
+      if c &&& 1 = pb then op ||| 0x00008000 else op ||| 0x00010000
+    else op ||| gc
+  else 0x20000000
+"
+    let n := propTable.size
+    let chunks := (n + propChunk - 1) / propChunk
+    for i in [0:chunks] do
+      file.putStrLn s!"@[expose]
+public def chunk{i} (c : Nat) : Nat :=
+  {propTree (i * propChunk) (min n ((i + 1) * propChunk)) "  "}
+"
+    file.putStrLn s!"/-- General category and `Other_*` property bits of a code point -/
+@[expose]
+public def lookup (c : Nat) : Nat :=
+  {propChunkTree 0 chunks "  "}
+
+end Unicode.PropTable"
+
 def caseTable : Array (UInt32 × UInt32 × UInt64) := Id.run do
   let mut t := #[]
   for data in UnicodeData.data.get do
@@ -233,5 +297,6 @@ static const unicode_data_t table[] = {"
 public def main : IO UInt32 := do
   makeCaseC
   makePropC
+  makePropLean
   makeScriptC
   return 0
